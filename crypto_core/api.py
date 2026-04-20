@@ -1,110 +1,150 @@
 import base64
 import os
-from datetime import datetime
+import hashlib
 from .engines.base import BaseCipher
 
-#(XOR + base64 для вывода в GUI)
-class XorCipher(BaseCipher):
+try:
+    from Crypto.Cipher import AES
+    from Crypto.Protocol.KDF import PBKDF2
+    from Crypto.Util.Padding import pad, unpad
+    from Crypto.Random import get_random_bytes
+except ImportError:
+    raise ImportError(
+        "Установите pycryptodome: pip install pycryptodome"
+    )
+
+
+class AESCipher(BaseCipher):
+    """
+    AES-256-CBC шифрование с PBKDF2 для генерации ключа.
+    Стандарт индустрии, криптостойкий алгоритм.
+    """
+    
+    KEY_LENGTH = 32  # 256 бит = 32 байта
+    IV_LENGTH = 16   # 128 бит = 16 байт (размер блока AES)
+    SALT_LENGTH = 16
+    
+    @staticmethod
+    def _derive_key(password: str, salt: bytes) -> bytes:
+        """
+        Генерирует криптографически стойкий ключ из пароля
+        с использованием PBKDF2 (100,000 итераций).
+        """
+        return PBKDF2(
+            password,
+            salt,
+            dkLen=AESCipher.KEY_LENGTH,
+            count=100000  # Количество итераций для защиты от перебора
+        )
+    
     @staticmethod
     def encrypt(plaintext: str, key: str) -> str:
+        """
+        Шифрование AES-256-CBC.
+        
+        Формат результата:
+        base64(salt + iv + ciphertext)
+        
+        Args:
+            plaintext: Исходный текст
+            key: Пароль/ключ (любой длины)
+        
+        Returns:
+            Base64-строка с зашифрованными данными
+        """
         if not key:
             raise ValueError("Ключ не может быть пустым")
-        key_bytes = key.encode()
-        pt_bytes = plaintext.encode()
-        enc_bytes = bytes([p ^ key_bytes[i % len(key_bytes)] for i, p in enumerate(pt_bytes)])
-        return base64.b64encode(enc_bytes).decode()
-
+        if not plaintext:
+            raise ValueError("Текст не может быть пустым")
+        
+        # Генерируем случайную соль и IV для КАЖДОГО шифрования
+        salt = get_random_bytes(AESCipher.SALT_LENGTH)
+        iv = get_random_bytes(AESCipher.IV_LENGTH)
+        
+        # Получаем ключ из пароля
+        derived_key = AESCipher._derive_key(key, salt)
+        
+        # Создаём AES-шифр в режиме CBC
+        cipher = AES.new(derived_key, AES.MODE_CBC, iv)
+        
+        # Шифруем с добавлением padding (PKCS7)
+        plaintext_bytes = plaintext.encode('utf-8')
+        padded_data = pad(plaintext_bytes, AES.block_size)
+        ciphertext = cipher.encrypt(padded_data)
+        
+        # Объединяем salt + iv + ciphertext и кодируем в Base64
+        result = salt + iv + ciphertext
+        return base64.b64encode(result).decode('utf-8')
+    
     @staticmethod
     def decrypt(ciphertext: str, key: str) -> str:
+        """
+        Дешифрование AES-256-CBC.
+        
+        Args:
+            ciphertext: Base64-строка от encrypt()
+            key: Тот же пароль, что использовался при шифровании
+        
+        Returns:
+            Расшифрованный текст
+        """
         if not key:
             raise ValueError("Ключ не может быть пустым")
+        if not ciphertext:
+            raise ValueError("Шифротекст не может быть пустым")
+        
         try:
-            raw_bytes = base64.b64decode(ciphertext)
+            # Декодируем Base64
+            raw_data = base64.b64decode(ciphertext)
         except Exception:
             raise ValueError("Некорректный формат шифротекста (должен быть Base64)")
-        key_bytes = key.encode()
-        dec_bytes = bytes([c ^ key_bytes[i % len(key_bytes)] for i, c in enumerate(raw_bytes)])
-        return dec_bytes.decode()
+        
+        # Проверяем минимальную длину (salt + iv минимум)
+        if len(raw_data) < (AESCipher.SALT_LENGTH + AESCipher.IV_LENGTH):
+            raise ValueError("Шифротекст слишком короткий")
+        
+        # Извлекаем salt, iv и ciphertext
+        salt = raw_data[:AESCipher.SALT_LENGTH]
+        iv = raw_data[AESCipher.SALT_LENGTH:AESCipher.SALT_LENGTH + AESCipher.IV_LENGTH]
+        encrypted_data = raw_data[AESCipher.SALT_LENGTH + AESCipher.IV_LENGTH:]
+        
+        # Получаем тот же ключ из пароля и соли
+        derived_key = AESCipher._derive_key(key, salt)
+        
+        # Создаём шифр для расшифровки
+        cipher = AES.new(derived_key, AES.MODE_CBC, iv)
+        
+        try:
+            # Расшифровываем и убираем padding
+            padded_plaintext = cipher.decrypt(encrypted_data)
+            plaintext = unpad(padded_plaintext, AES.block_size)
+            return plaintext.decode('utf-8')
+        except ValueError as e:
+            # Ошибка padding = неверный ключ или повреждённые данные
+            raise ValueError("Неверный ключ или повреждённый шифротекст")
+        except Exception as e:
+            raise ValueError(f"Ошибка расшифровки: {str(e)}")
+
 
 # 🌟 Публичная точка входа для "подвязки как у АС"
 class CryptoService:
-    """Единственный класс, который импортируют внешние системы."""
-    _engine = XorCipher()  # Можно менять на AES, GOST, RSA и т.д.
+    """
+    Единый интерфейс для криптографических операций.
+    Внешние системы работают только с этим классом.
+    """
+    _engine = AESCipher()  # По умолчанию используем AES
 
     @classmethod
     def set_engine(cls, engine: BaseCipher):
+        """Заменить алгоритм шифрования (для тестов или смены алгоритма)"""
         cls._engine = engine
 
     @classmethod
     def encrypt(cls, text: str, key: str) -> str:
+        """Зашифровать текст"""
         return cls._engine.encrypt(text, key)
 
     @classmethod
     def decrypt(cls, text: str, key: str) -> str:
+        """Расшифровать текст"""
         return cls._engine.decrypt(text, key)
-class CryptoService:
-    _engine = XorCipher()
-
-    @classmethod
-    def set_engine(cls, engine: BaseCipher):
-        cls._engine = engine
-
-    @classmethod
-    def encrypt(cls, text: str, key: str) -> str:
-        return cls._engine.encrypt(text, key)
-
-    @classmethod
-    def decrypt(cls, text: str, key: str) -> str:
-        return cls._engine.decrypt(text, key)
-    
-    # === Новые методы для работы с файлами ===
-    
-    @classmethod
-    def encrypt_file(cls, input_path: str, output_path: str, key: str) -> dict:
-        """
-        Шифрует файл и сохраняет результат.
-        Возвращает метаданные операции.
-        """
-        if not os.path.exists(input_path):
-            raise FileNotFoundError(f"Файл не найден: {input_path}")
-        
-        with open(input_path, 'r', encoding='utf-8') as f:
-            plaintext = f.read()
-        
-        ciphertext = cls.encrypt(plaintext, key)
-        
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(ciphertext)
-        
-        return {
-            "input_file": input_path,
-            "output_file": output_path,
-            "original_size": len(plaintext),
-            "encrypted_size": len(ciphertext),
-            "timestamp": datetime.now().isoformat(),
-            "status": "success"
-        }
-    
-    @classmethod
-    def decrypt_file(cls, input_path: str, output_path: str, key: str) -> dict:
-        """
-        Дешифрует файл и сохраняет результат.
-        """
-        if not os.path.exists(input_path):
-            raise FileNotFoundError(f"Файл не найден: {input_path}")
-        
-        with open(input_path, 'r', encoding='utf-8') as f:
-            ciphertext = f.read()
-        
-        plaintext = cls.decrypt(ciphertext, key)
-        
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(plaintext)
-        
-        return {
-            "input_file": input_path,
-            "output_file": output_path,
-            "decrypted_size": len(plaintext),
-            "timestamp": datetime.now().isoformat(),
-            "status": "success"
-        }
