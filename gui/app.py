@@ -32,7 +32,15 @@ class EncryptionApp:
         style.theme_use('clam')
 
         # Папка для кеша и временных файлов
-        self.CACHE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "cache"))
+                # Логика для поиска правильной директории (в коде или в .exe)
+        if getattr(sys, 'frozen', False):
+            # Если запущено как .exe
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            # Если запущено как скрипт в VS Code
+            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+        self.CACHE_DIR = os.path.join(base_dir, "cache")
         os.makedirs(self.CACHE_DIR, exist_ok=True)
 
         # Переменные для хранения путей в стеганографии
