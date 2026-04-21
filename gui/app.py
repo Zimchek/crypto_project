@@ -7,11 +7,17 @@ import json
 import hashlib
 from datetime import datetime
 
-# === Настройка путей ===
-# Добавляем корень проекта в пути, чтобы импортировать модули
+# Добавляем поддержку drag-and-drop
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+    TKDND_AVAILABLE = True
+except ImportError:
+    TKDND_AVAILABLE = False
+    print("⚠️  tkinterdnd2 не установлен. Drag-and-drop будет недоступен.")
+    print("   Установите: pip install tkinterdnd2")
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-# Импорт наших модулей
 try:
     from crypto_core import CryptoService
     from crypto_core.stego_service import StegoService
@@ -27,32 +33,31 @@ class EncryptionApp:
         self.root.geometry("800x650")
         self.root.minsize(700, 500)
         
-        # Настройка стиля (чуть более современный вид)
+        # Разрешаем изменение размера окна
+        self.root.resizable(True, True)
+        
         style = ttk.Style()
         style.theme_use('clam')
 
-        # Папка для кеша и временных файлов
-                # Логика для поиска правильной директории (в коде или в .exe)
+        # Папка для кеша
         if getattr(sys, 'frozen', False):
-            # Если запущено как .exe
             base_dir = os.path.dirname(sys.executable)
         else:
-            # Если запущено как скрипт в VS Code
             base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
         self.CACHE_DIR = os.path.join(base_dir, "cache")
         os.makedirs(self.CACHE_DIR, exist_ok=True)
 
-        # Переменные для хранения путей в стеганографии
+        # Переменные для путей
         self.stego_cover_path = tk.StringVar()
         self.stego_secret_path = tk.StringVar()
 
         self._build_main_interface()
 
     def _build_main_interface(self):
-        """Создает верхнюю панель и переключатели режимов"""
+        """Создает интерфейс с drag-and-drop"""
         
-        # Верхняя панель (Header)
+        # Header
         header = tk.Frame(self.root, bg="#2c3e50", height=60)
         header.pack(fill="x", side="top")
         header.pack_propagate(False)
@@ -60,7 +65,7 @@ class EncryptionApp:
         tk.Label(header, text="🛡️ CryptoProject Pro", 
                  font=("Segoe UI", 18, "bold"), bg="#2c3e50", fg="#ecf0f1").pack(pady=15)
 
-        # Панель переключения режимов
+        # Панель режимов
         mode_frame = tk.Frame(self.root, bg="#ecf0f1")
         mode_frame.pack(fill="x", pady=5)
 
@@ -68,39 +73,32 @@ class EncryptionApp:
                                           command=lambda: self._switch_mode("crypto"), width=25)
         self.btn_mode_crypto.pack(side="left", padx=10, pady=5)
 
-        self.btn_mode_stego = ttk.Button(mode_frame, text="️Стеганография", 
+        self.btn_mode_stego = ttk.Button(mode_frame, text="🖼 Стеганография", 
                                          command=lambda: self._switch_mode("stego"), width=25)
         self.btn_mode_stego.pack(side="left", padx=10, pady=5)
 
-        # Кнопка очистки кеша
-        self.btn_clear_cache = ttk.Button(mode_frame, text=" Очистить кеш", 
-                                          command=self._clear_cache, style="Danger.TButton")
+        self.btn_clear_cache = ttk.Button(mode_frame, text="🗑 Очистить кеш", 
+                                          command=self._clear_cache)
         self.btn_clear_cache.pack(side="right", padx=10, pady=5)
 
-        # Основной контейнер контента
+        # Основной контейнер
         self.content_frame = tk.Frame(self.root, bg="#ffffff")
         self.content_frame.pack(fill="both", expand=True, padx=15, pady=10)
 
-        # По умолчанию открываем режим шифрования
         self._switch_mode("crypto")
 
     def _switch_mode(self, mode):
-        """Переключает режимы отображения"""
-        # Очистка текущего контента
+        """Переключает режимы"""
         for widget in self.content_frame.winfo_children():
             widget.destroy()
 
         if mode == "crypto":
             self._build_crypto_view()
-            self.btn_mode_crypto.state(["active"])
-            self.btn_mode_stego.state(["!active"])
         else:
             self._build_stego_view()
-            self.btn_mode_stego.state(["active"])
-            self.btn_mode_crypto.state(["!active"])
 
     # ==========================================
-    # 🔹 РЕЖИМ 1: ОБЫЧНОЕ ШИФРОВАНИЕ
+    # 🔹 РЕЖИМ 1: ШИФРОВАНИЕ
     # ==========================================
 
     def _build_crypto_view(self):
@@ -110,11 +108,11 @@ class EncryptionApp:
         self.txt_input = tk.Text(self.content_frame, height=6, font=("Consolas", 10))
         self.txt_input.pack(fill="x", pady=5)
 
-        # Панель инструментов ввода
+        # Кнопки для ввода
         input_toolbar = tk.Frame(self.content_frame)
         input_toolbar.pack(fill="x")
         tk.Button(input_toolbar, text="📂 Загрузить файл", command=self._load_file).pack(side="left", padx=5)
-        tk.Button(input_toolbar, text="❌ Очистить поле", command=lambda: self.txt_input.delete("1.0", tk.END)).pack(side="left", padx=5)
+        tk.Button(input_toolbar, text="❌ Очистить", command=lambda: self.txt_input.delete("1.0", tk.END)).pack(side="left", padx=5)
 
         tk.Label(self.content_frame, text="Секретный ключ:", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(10, 5))
         self.entry_key = tk.Entry(self.content_frame, font=("Segoe UI", 11))
@@ -136,17 +134,17 @@ class EncryptionApp:
 
         output_toolbar = tk.Frame(self.content_frame)
         output_toolbar.pack(fill="x")
-        tk.Button(output_toolbar, text=" Сохранить в файл", command=self._save_result).pack(side="left", padx=5)
-        tk.Button(output_toolbar, text="📄 Создать паспорт", command=self._create_passport).pack(side="left", padx=5)
+        tk.Button(output_toolbar, text="💾 Сохранить", command=self._save_result).pack(side="left", padx=5)
+        tk.Button(output_toolbar, text="📄 Паспорт", command=self._create_passport).pack(side="left", padx=5)
         tk.Button(output_toolbar, text="📋 Копировать", command=self._copy_result).pack(side="right", padx=5)
 
     # ==========================================
-    # 🔹 РЕЖИМ 2: СТЕГАНОГРАФИЯ
+    # 🔹 РЕЖИМ 2: СТЕГАНОГРАФИЯ С DRAG-AND-DROP
     # ==========================================
 
     def _build_stego_view(self):
         # Блок "Спрятать"
-        tk.Label(self.content_frame, text=" Спрятать текст в изображение", 
+        tk.Label(self.content_frame, text="🔐 Спрятать текст в изображение", 
                  font=("Segoe UI", 12, "bold"), fg="#27ae60").pack(anchor="w")
         
         tk.Label(self.content_frame, text="Сообщение:").pack(anchor="w", pady=(5,0))
@@ -157,9 +155,29 @@ class EncryptionApp:
         self.stego_entry_key = tk.Entry(self.content_frame)
         self.stego_entry_key.pack(fill="x", pady=5)
 
-        tk.Label(self.content_frame, text="Картинка-контейнер:").pack(anchor="w")
-        ttk.Entry(self.content_frame, textvariable=self.stego_cover_path, state="readonly").pack(fill="x", pady=2)
-        ttk.Button(self.content_frame, text=" Выбрать PNG/BMP", command=self._select_cover_image).pack(fill="x", pady=5)
+        # === DRAG-AND-DROP ЗОНА ДЛЯ КАРТИНКИ-КОНТЕЙНЕРА ===
+        tk.Label(self.content_frame, text="Картинка-контейнер (перетащите сюда или выберите):").pack(anchor="w", pady=(10, 5))
+        
+        self.cover_drop_zone = tk.Label(self.content_frame, text="📁 Перетащите PNG/BMP сюда\nили нажмите для выбора", 
+                                        bg="#ecf0f1", fg="#7f8c8d", 
+                                        font=("Segoe UI", 10), 
+                                        relief="ridge", bd=2, 
+                                        padx=20, pady=30,
+                                        cursor="hand2")
+        self.cover_drop_zone.pack(fill="x", pady=5)
+        
+        # Привязка событий drag-and-drop
+        if TKDND_AVAILABLE:
+            self.cover_drop_zone.drop_target_register(DND_FILES)
+            self.cover_drop_zone.dnd_bind('<<Drop>>', lambda e: self._handle_drop(e, self.stego_cover_path, self.cover_drop_zone))
+        
+        # Клик для выбора файла
+        self.cover_drop_zone.bind("<Button-1>", lambda e: self._select_cover_image())
+        
+        # Отображение пути
+        self.cover_path_label = tk.Label(self.content_frame, text="Файл не выбран", 
+                                         fg="#95a5a6", font=("Segoe UI", 8), wraplength=700)
+        self.cover_path_label.pack(fill="x")
 
         tk.Button(self.content_frame, text="✨ Спрятать в картинку", command=self._action_hide, 
                   bg="#27ae60", fg="white", font=("Segoe UI", 10, "bold")).pack(fill="x", pady=10)
@@ -171,23 +189,61 @@ class EncryptionApp:
         tk.Label(self.content_frame, text="🔍 Извлечь текст из изображения", 
                  font=("Segoe UI", 12, "bold"), fg="#c0392b").pack(anchor="w")
 
-        tk.Label(self.content_frame, text="Картинка с секретом:").pack(anchor="w", pady=(5,0))
-        ttk.Entry(self.content_frame, textvariable=self.stego_secret_path, state="readonly").pack(fill="x", pady=2)
-        ttk.Button(self.content_frame, text="📂 Выбрать картинку", command=self._select_secret_image).pack(fill="x", pady=5)
+        # === DRAG-AND-DROP ЗОНА ДЛЯ СЕКРЕТНОЙ КАРТИНКИ ===
+        tk.Label(self.content_frame, text="Картинка с секретом (перетащите сюда):").pack(anchor="w", pady=(10, 5))
+        
+        self.secret_drop_zone = tk.Label(self.content_frame, text="📁 Перетащите PNG сюда\nили нажмите для выбора", 
+                                         bg="#ecf0f1", fg="#7f8c8d", 
+                                         font=("Segoe UI", 10), 
+                                         relief="ridge", bd=2, 
+                                         padx=20, pady=30,
+                                         cursor="hand2")
+        self.secret_drop_zone.pack(fill="x", pady=5)
+        
+        if TKDND_AVAILABLE:
+            self.secret_drop_zone.drop_target_register(DND_FILES)
+            self.secret_drop_zone.dnd_bind('<<Drop>>', lambda e: self._handle_drop(e, self.stego_secret_path, self.secret_drop_zone))
+        
+        self.secret_drop_zone.bind("<Button-1>", lambda e: self._select_secret_image())
+        
+        self.secret_path_label = tk.Label(self.content_frame, text="Файл не выбран", 
+                                          fg="#95a5a6", font=("Segoe UI", 8), wraplength=700)
+        self.secret_path_label.pack(fill="x")
 
-        tk.Label(self.content_frame, text="Ключ:").pack(anchor="w")
+        tk.Label(self.content_frame, text="Ключ:").pack(anchor="w", pady=(10, 5))
         self.stego_entry_key_decrypt = tk.Entry(self.content_frame)
         self.stego_entry_key_decrypt.pack(fill="x", pady=5)
 
         tk.Button(self.content_frame, text="🔍 Извлечь", command=self._action_extract, 
                   bg="#c0392b", fg="white", font=("Segoe UI", 10, "bold")).pack(fill="x", pady=10)
 
-        tk.Label(self.content_frame, text="Результат извлечения:").pack(anchor="w", pady=(10,0))
+        tk.Label(self.content_frame, text="Результат:").pack(anchor="w", pady=(10, 0))
         self.stego_txt_output = tk.Text(self.content_frame, height=4, state="disabled", bg="#f9f9f9")
         self.stego_txt_output.pack(fill="x", pady=5)
 
+    def _handle_drop(self, event, path_var, drop_zone):
+        """Обрабатывает перетаскивание файла"""
+        # Получаем путь к файлу (убираем фигурные скобки если есть)
+        file_path = event.data.strip('{}')
+        
+        # Проверяем расширение
+        if file_path.lower().endswith(('.png', '.bmp')):
+            path_var.set(file_path)
+            
+            # Обновляем визуальное состояние зоны
+            filename = os.path.basename(file_path)
+            drop_zone.config(text=f"✅ {filename}", bg="#d5f5e3", fg="#27ae60")
+            
+            # Обновляем label с путём
+            if hasattr(self, 'cover_path_label') and path_var == self.stego_cover_path:
+                self.cover_path_label.config(text=file_path, fg="#27ae60")
+            elif hasattr(self, 'secret_path_label') and path_var == self.stego_secret_path:
+                self.secret_path_label.config(text=file_path, fg="#27ae60")
+        else:
+            messagebox.showwarning("Неверный формат", "Пожалуйста, перетащите файл PNG или BMP")
+
     # ==========================================
-    # ⚙️ ФУНКЦИОНАЛ (ДЕЙСТВИЯ)
+    # ⚙️ ФУНКЦИОНАЛ
     # ==========================================
 
     def _action_encrypt(self):
@@ -213,7 +269,7 @@ class EncryptionApp:
             output_widget.config(state="disabled")
 
         except Exception as e:
-            messagebox.showerror("Ошибка обработки", str(e))
+            messagebox.showerror("Ошибка", str(e))
 
     def _action_encrypt_logic(self, text, key):
         return CryptoService.encrypt(text, key)
@@ -231,14 +287,12 @@ class EncryptionApp:
                 messagebox.showwarning("Ошибка", "Заполните все поля и выберите картинку!")
                 return
 
-            # Сохраняем результат сразу в папку cache для порядка
             out_path = os.path.join(self.CACHE_DIR, "stego_result.png")
-            
             StegoService.hide_encrypted_text(text, key, cover, out_path)
             messagebox.showinfo("Успех", f"Секрет спрятан!\nФайл сохранен в:\n{out_path}")
 
         except Exception as e:
-            messagebox.showerror("Ошибка стеганографии", str(e))
+            messagebox.showerror("Ошибка", str(e))
 
     def _action_extract(self):
         try:
@@ -256,14 +310,10 @@ class EncryptionApp:
             self.stego_txt_output.insert("1.0", result['decrypted_text'])
             self.stego_txt_output.config(state="disabled")
             
-            messagebox.showinfo("Успех", "Текст успешно извлечен!")
+            messagebox.showinfo("Успех", "Текст извлечён!")
 
         except Exception as e:
             messagebox.showerror("Ошибка", str(e))
-
-    # ==========================================
-    # 🛠 УТИЛИТЫ И ФАЙЛЫ
-    # ==========================================
 
     def _load_file(self):
         path = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")])
@@ -278,7 +328,7 @@ class EncryptionApp:
     def _save_result(self):
         text = self.txt_output.get("1.0", tk.END).strip()
         if not text:
-            messagebox.showwarning("Пусто", "Нет данных для сохранения!")
+            messagebox.showwarning("Пусто", "Нет данных!")
             return
 
         path = filedialog.asksaveasfilename(defaultextension=".txt", initialdir=self.CACHE_DIR)
@@ -286,7 +336,7 @@ class EncryptionApp:
             try:
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(text)
-                messagebox.showinfo("Готово", "Файл сохранен.")
+                messagebox.showinfo("Готово", "Файл сохранён.")
             except Exception as e:
                 messagebox.showerror("Ошибка", str(e))
 
@@ -295,36 +345,51 @@ class EncryptionApp:
         if text:
             self.root.clipboard_clear()
             self.root.clipboard_append(text)
-            messagebox.showinfo("Копирование", "Скопировано в буфер обмена.")
-
-    # ==========================================
-    # 🗑 ОЧИСТКА КЕША
-    # ==========================================
+            messagebox.showinfo("Копирование", "Скопировано!")
 
     def _clear_cache(self):
-        """Очищает поля ввода и удаляет временные файлы из папки cache"""
-        answer = messagebox.askyesno("Подтверждение", 
-                                     "Очистить все поля и удалить временные файлы из папки cache?")
+        """Очистка кеша"""
+        answer = messagebox.askyesno("Подтверждение", "Очистить все поля и временные файлы?")
         if answer:
-            # 1. Очистка полей ввода
-            self.txt_input.delete("1.0", tk.END)
-            self.txt_output.config(state="normal")
-            self.txt_output.delete("1.0", tk.END)
-            self.txt_output.config(state="disabled")
-            self.entry_key.delete(0, tk.END)
+            # Очистка полей
+            if hasattr(self, 'txt_input'):
+                self.txt_input.delete("1.0", tk.END)
+            if hasattr(self, 'txt_output'):
+                self.txt_output.config(state="normal")
+                self.txt_output.delete("1.0", tk.END)
+                self.txt_output.config(state="disabled")
+            if hasattr(self, 'entry_key'):
+                self.entry_key.delete(0, tk.END)
 
-            # Очистка полей стеганографии (если виджеты существуют)
+            # Очистка стеганографии
             if hasattr(self, 'stego_txt_input'):
                 self.stego_txt_input.delete("1.0", tk.END)
+            if hasattr(self, 'stego_entry_key'):
                 self.stego_entry_key.delete(0, tk.END)
+            if hasattr(self, 'stego_entry_key_decrypt'):
                 self.stego_entry_key_decrypt.delete(0, tk.END)
+            if hasattr(self, 'stego_txt_output'):
                 self.stego_txt_output.config(state="normal")
                 self.stego_txt_output.delete("1.0", tk.END)
                 self.stego_txt_output.config(state="disabled")
+            if hasattr(self, 'stego_cover_path'):
                 self.stego_cover_path.set("")
+            if hasattr(self, 'stego_secret_path'):
                 self.stego_secret_path.set("")
+            
+            # Сброс зон drag-and-drop
+            if hasattr(self, 'cover_drop_zone'):
+                self.cover_drop_zone.config(text="📁 Перетащите PNG/BMP сюда\nили нажмите для выбора", 
+                                           bg="#ecf0f1", fg="#7f8c8d")
+            if hasattr(self, 'secret_drop_zone'):
+                self.secret_drop_zone.config(text="📁 Перетащите PNG сюда\nили нажмите для выбора", 
+                                            bg="#ecf0f1", fg="#7f8c8d")
+            if hasattr(self, 'cover_path_label'):
+                self.cover_path_label.config(text="Файл не выбран", fg="#95a5a6")
+            if hasattr(self, 'secret_path_label'):
+                self.secret_path_label.config(text="Файл не выбран", fg="#95a5a6")
 
-            # 2. Очистка файлов
+            # Удаление файлов
             count = 0
             try:
                 for filename in os.listdir(self.CACHE_DIR):
@@ -336,13 +401,9 @@ class EncryptionApp:
                         shutil.rmtree(file_path)
                         count += 1
             except Exception as e:
-                messagebox.showerror("Ошибка очистки", f"Не удалось удалить некоторые файлы:\n{e}")
+                messagebox.showerror("Ошибка", f"Не удалось удалить файлы:\n{e}")
 
             messagebox.showinfo("Очистка", f"Удалено файлов: {count}\nПоля очищены.")
-
-    # ==========================================
-    #  КРИПТОПАСПОРТ
-    # ==========================================
 
     def _create_passport(self):
         text = self.txt_output.get("1.0", tk.END).strip()
@@ -351,18 +412,16 @@ class EncryptionApp:
             return
 
         try:
-            # Создаем хеши для отчета
             input_hash = hashlib.sha256(self.txt_input.get("1.0", tk.END).encode()).hexdigest()[:12]
             output_hash = hashlib.sha256(text.encode()).hexdigest()[:12]
             
             passport_data = {
                 "app_version": "1.0",
                 "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "algorithm": "AES-256-GCM (StdLib Mode)",
+                "algorithm": "AES-256-GCM (StdLib)",
                 "integrity_check": "HMAC-SHA256",
-                "input_preview_hash": input_hash,
-                "output_preview_hash": output_hash,
-                "note": "Этот файл не содержит ключей шифрования."
+                "input_hash": input_hash,
+                "output_hash": output_hash
             }
 
             filename = f"passport_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
@@ -371,29 +430,38 @@ class EncryptionApp:
             with open(save_path, "w", encoding="utf-8") as f:
                 json.dump(passport_data, f, indent=4, ensure_ascii=False)
 
-            messagebox.showinfo("Паспорт", f"Отчет сохранен:\n{save_path}")
+            messagebox.showinfo("Паспорт", f"Отчёт сохранён:\n{save_path}")
 
         except Exception as e:
             messagebox.showerror("Ошибка", str(e))
 
-    # Диалоги выбора файлов для стеганографии
     def _select_cover_image(self):
         path = filedialog.askopenfilename(filetypes=[("Images", "*.png;*.bmp")])
-        if path: self.stego_cover_path.set(path)
+        if path:
+            self.stego_cover_path.set(path)
+            filename = os.path.basename(path)
+            self.cover_drop_zone.config(text=f"✅ {filename}", bg="#d5f5e3", fg="#27ae60")
+            self.cover_path_label.config(text=path, fg="#27ae60")
 
     def _select_secret_image(self):
         path = filedialog.askopenfilename(filetypes=[("Images", "*.png;*.bmp")])
-        if path: self.stego_secret_path.set(path)
+        if path:
+            self.stego_secret_path.set(path)
+            filename = os.path.basename(path)
+            self.secret_drop_zone.config(text=f"✅ {filename}", bg="#fadbd8", fg="#c0392b")
+            self.secret_path_label.config(text=path, fg="#c0392b")
+
+
+# === ЗАПУСК ПРИЛОЖЕНИЯ ===
+def run():
+    if TKDND_AVAILABLE:
+        root = TkinterDnD.Tk()
+    else:
+        root = tk.Tk()
+    
+    app = EncryptionApp(root)
+    root.mainloop()
 
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = EncryptionApp(root)
-    root.mainloop()
-
-
-def run():
-    """Точка входа для запуска приложения"""
-    root = tk.Tk()
-    app = EncryptionApp(root)
-    root.mainloop()
+    run()
