@@ -1,361 +1,391 @@
 import tkinter as tk
-from tkinter import messagebox, filedialog
-import sys
+from tkinter import ttk, messagebox, filedialog
 import os
+import sys
+import shutil
+import json
+import hashlib
+from datetime import datetime
 
+# === Настройка путей ===
+# Добавляем корень проекта в пути, чтобы импортировать модули
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from crypto_core import CryptoService
-from crypto_core.stego_service import StegoService
+
+# Импорт наших модулей
+try:
+    from crypto_core import CryptoService
+    from crypto_core.stego_service import StegoService
+except ImportError as e:
+    print(f"Ошибка импорта модулей: {e}")
+    sys.exit(1)
 
 
 class EncryptionApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("CryptoModule Pro - Шифрование + Стеганография")
-        self.root.geometry("700x650")
-        self._build_ui()
+        self.root.title("CryptoProject Pro")
+        self.root.geometry("800x650")
+        self.root.minsize(700, 500)
+        
+        # Настройка стиля (чуть более современный вид)
+        style = ttk.Style()
+        style.theme_use('clam')
 
-    def _build_ui(self):
-        pad_opts = {"padx": 10, "pady": 5}
+        # Папка для кеша и временных файлов
+        self.CACHE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "cache"))
+        os.makedirs(self.CACHE_DIR, exist_ok=True)
 
-        # === Заголовок с вкладками (упрощённо - через Label) ===
-        title_frame = tk.Frame(self.root, bg="#2c3e50")
-        title_frame.pack(fill="x", padx=0, pady=0)
-        
-        tk.Label(title_frame, text="🔐 CryptoModule Pro", 
-                font=("Arial", 16, "bold"), bg="#2c3e50", fg="white").pack(pady=10)
-        
-        # Кнопки переключения режимов
-        mode_frame = tk.Frame(self.root)
-        mode_frame.pack(fill="x", **pad_opts)
-        
-        self.btn_crypto = tk.Button(mode_frame, text="🔒 Обычное шифрование", 
-                                   command=lambda: self._switch_mode("crypto"),
-                                   bg="#3498db", fg="white", padx=10, pady=5)
-        self.btn_crypto.pack(side="left", padx=5, expand=True, fill="x")
-        
-        self.btn_stego = tk.Button(mode_frame, text="🖼 Стеганография", 
-                                  command=lambda: self._switch_mode("stego"),
-                                  bg="#95a5a6", fg="white", padx=10, pady=5)
-        self.btn_stego.pack(side="left", padx=5, expand=True, fill="x")
+        # Переменные для хранения путей в стеганографии
+        self.stego_cover_path = tk.StringVar()
+        self.stego_secret_path = tk.StringVar()
 
-        # === Контейнер для контента ===
-        self.content_frame = tk.Frame(self.root)
-        self.content_frame.pack(fill="both", expand=True, **pad_opts)
+        self._build_main_interface()
+
+    def _build_main_interface(self):
+        """Создает верхнюю панель и переключатели режимов"""
         
-        # Инициализируем режим шифрования
-        self._build_crypto_mode()
-        self.current_mode = "crypto"
+        # Верхняя панель (Header)
+        header = tk.Frame(self.root, bg="#2c3e50", height=60)
+        header.pack(fill="x", side="top")
+        header.pack_propagate(False)
+        
+        tk.Label(header, text="🛡️ CryptoProject Pro", 
+                 font=("Segoe UI", 18, "bold"), bg="#2c3e50", fg="#ecf0f1").pack(pady=15)
+
+        # Панель переключения режимов
+        mode_frame = tk.Frame(self.root, bg="#ecf0f1")
+        mode_frame.pack(fill="x", pady=5)
+
+        self.btn_mode_crypto = ttk.Button(mode_frame, text="🔒 Шифрование текста", 
+                                          command=lambda: self._switch_mode("crypto"), width=25)
+        self.btn_mode_crypto.pack(side="left", padx=10, pady=5)
+
+        self.btn_mode_stego = ttk.Button(mode_frame, text="️Стеганография", 
+                                         command=lambda: self._switch_mode("stego"), width=25)
+        self.btn_mode_stego.pack(side="left", padx=10, pady=5)
+
+        # Кнопка очистки кеша
+        self.btn_clear_cache = ttk.Button(mode_frame, text=" Очистить кеш", 
+                                          command=self._clear_cache, style="Danger.TButton")
+        self.btn_clear_cache.pack(side="right", padx=10, pady=5)
+
+        # Основной контейнер контента
+        self.content_frame = tk.Frame(self.root, bg="#ffffff")
+        self.content_frame.pack(fill="both", expand=True, padx=15, pady=10)
+
+        # По умолчанию открываем режим шифрования
+        self._switch_mode("crypto")
 
     def _switch_mode(self, mode):
-        """Переключение между режимами"""
-        # Очищаем текущий контент
+        """Переключает режимы отображения"""
+        # Очистка текущего контента
         for widget in self.content_frame.winfo_children():
             widget.destroy()
-        
-        self.current_mode = mode
-        
+
         if mode == "crypto":
-            self._build_crypto_mode()
-            self.btn_crypto.config(bg="#3498db")
-            self.btn_stego.config(bg="#95a5a6")
+            self._build_crypto_view()
+            self.btn_mode_crypto.state(["active"])
+            self.btn_mode_stego.state(["!active"])
         else:
-            self._build_stego_mode()
-            self.btn_stego.config(bg="#27ae60")
-            self.btn_crypto.config(bg="#95a5a6")
+            self._build_stego_view()
+            self.btn_mode_stego.state(["active"])
+            self.btn_mode_crypto.state(["!active"])
 
-    def _build_crypto_mode(self):
-        """Режим обычного шифрования"""
-        pad_opts = {"padx": 5, "pady": 3}
+    # ==========================================
+    # 🔹 РЕЖИМ 1: ОБЫЧНОЕ ШИФРОВАНИЕ
+    # ==========================================
 
-        tk.Label(self.content_frame, text="Текст для обработки:", 
-                font=("Arial", 10, "bold")).pack(anchor="w", **pad_opts)
+    def _build_crypto_view(self):
+        tk.Label(self.content_frame, text="Введите текст для обработки:", 
+                 font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 5))
+
+        self.txt_input = tk.Text(self.content_frame, height=6, font=("Consolas", 10))
+        self.txt_input.pack(fill="x", pady=5)
+
+        # Панель инструментов ввода
+        input_toolbar = tk.Frame(self.content_frame)
+        input_toolbar.pack(fill="x")
+        tk.Button(input_toolbar, text="📂 Загрузить файл", command=self._load_file).pack(side="left", padx=5)
+        tk.Button(input_toolbar, text="❌ Очистить поле", command=lambda: self.txt_input.delete("1.0", tk.END)).pack(side="left", padx=5)
+
+        tk.Label(self.content_frame, text="Секретный ключ:", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(10, 5))
+        self.entry_key = tk.Entry(self.content_frame, font=("Segoe UI", 11))
+        self.entry_key.pack(fill="x", pady=5)
+
+        # Кнопки действий
+        actions_frame = tk.Frame(self.content_frame)
+        actions_frame.pack(fill="x", pady=10)
         
-        # Кнопки загрузки/сохранения
-        input_btn_frame = tk.Frame(self.content_frame)
-        input_btn_frame.pack(fill="x", **pad_opts)
-        tk.Button(input_btn_frame, text="📂 Загрузить из файла", 
-                 command=self._load_input).pack(side="left", padx=2)
-        tk.Button(input_btn_frame, text="🗑 Очистить", 
-                 command=lambda: self.text_in.delete("1.0", tk.END)).pack(side="right", padx=2)
+        tk.Button(actions_frame, text="🔒 Зашифровать", command=self._action_encrypt, 
+                  bg="#2ecc71", fg="white", font=("Segoe UI", 10, "bold")).pack(side="left", fill="x", expand=True, padx=5)
+        tk.Button(actions_frame, text="🔓 Расшифровать", command=self._action_decrypt, 
+                  bg="#e74c3c", fg="white", font=("Segoe UI", 10, "bold")).pack(side="left", fill="x", expand=True, padx=5)
+
+        tk.Label(self.content_frame, text="Результат:", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(10, 5))
         
-        self.text_in = tk.Text(self.content_frame, height=5, wrap="word")
-        self.text_in.pack(fill="x", **pad_opts)
+        self.txt_output = tk.Text(self.content_frame, height=6, font=("Consolas", 10), bg="#f0f0f0", state="disabled")
+        self.txt_output.pack(fill="x", pady=5)
 
-        tk.Label(self.content_frame, text="Ключ шифрования:").pack(anchor="w", **pad_opts)
-        self.key_entry = tk.Entry(self.content_frame, width=50)
-        self.key_entry.pack(fill="x", **pad_opts)
+        output_toolbar = tk.Frame(self.content_frame)
+        output_toolbar.pack(fill="x")
+        tk.Button(output_toolbar, text=" Сохранить в файл", command=self._save_result).pack(side="left", padx=5)
+        tk.Button(output_toolbar, text="📄 Создать паспорт", command=self._create_passport).pack(side="left", padx=5)
+        tk.Button(output_toolbar, text="📋 Копировать", command=self._copy_result).pack(side="right", padx=5)
 
-        # Кнопки операций
-        btn_frame = tk.Frame(self.content_frame)
-        btn_frame.pack(fill="x", pady=10)
-        tk.Button(btn_frame, text="🔒 Зашифровать", 
-                 command=self._encrypt, bg="#d4edda", padx=15, pady=5).pack(side="left", expand=True, padx=5)
-        tk.Button(btn_frame, text="🔓 Расшифровать", 
-                 command=self._decrypt, bg="#f8d7da", padx=15, pady=5).pack(side="left", expand=True, padx=5)
+    # ==========================================
+    # 🔹 РЕЖИМ 2: СТЕГАНОГРАФИЯ
+    # ==========================================
 
-        tk.Label(self.content_frame, text="Результат:", 
-                font=("Arial", 10, "bold")).pack(anchor="w", **pad_opts)
+    def _build_stego_view(self):
+        # Блок "Спрятать"
+        tk.Label(self.content_frame, text=" Спрятать текст в изображение", 
+                 font=("Segoe UI", 12, "bold"), fg="#27ae60").pack(anchor="w")
         
-        output_btn_frame = tk.Frame(self.content_frame)
-        output_btn_frame.pack(fill="x", **pad_opts)
-        tk.Button(output_btn_frame, text="💾 Сохранить", 
-                 command=self._save_output).pack(side="left", padx=2)
-        tk.Button(output_btn_frame, text="📋 Копировать", 
-                 command=self._copy_output).pack(side="left", padx=2)
-        tk.Button(output_btn_frame, text="📄 Паспорт", 
-                 command=self._generate_passport).pack(side="left", padx=2)
-        
-        self.text_out = tk.Text(self.content_frame, height=5, state="disabled", 
-                               wrap="word", bg="#f8f9fa")
-        self.text_out.pack(fill="x", **pad_opts)
+        tk.Label(self.content_frame, text="Сообщение:").pack(anchor="w", pady=(5,0))
+        self.stego_txt_input = tk.Text(self.content_frame, height=3)
+        self.stego_txt_input.pack(fill="x", pady=5)
 
-    def _build_stego_mode(self):
-        """Режим стеганографии"""
-        pad_opts = {"padx": 5, "pady": 3}
+        tk.Label(self.content_frame, text="Ключ:").pack(anchor="w")
+        self.stego_entry_key = tk.Entry(self.content_frame)
+        self.stego_entry_key.pack(fill="x", pady=5)
 
-        # === Вкладка 1: Спрятать текст ===
-        tk.Label(self.content_frame, text="🔐 Спрятать текст в изображение", 
-                font=("Arial", 11, "bold"), fg="#27ae60").pack(anchor="w", pady=(0, 10))
+        tk.Label(self.content_frame, text="Картинка-контейнер:").pack(anchor="w")
+        ttk.Entry(self.content_frame, textvariable=self.stego_cover_path, state="readonly").pack(fill="x", pady=2)
+        ttk.Button(self.content_frame, text=" Выбрать PNG/BMP", command=self._select_cover_image).pack(fill="x", pady=5)
 
-        tk.Label(self.content_frame, text="Секретный текст:").pack(anchor="w", **pad_opts)
-        self.stego_text_in = tk.Text(self.content_frame, height=4, wrap="word")
-        self.stego_text_in.pack(fill="x", **pad_opts)
+        tk.Button(self.content_frame, text="✨ Спрятать в картинку", command=self._action_hide, 
+                  bg="#27ae60", fg="white", font=("Segoe UI", 10, "bold")).pack(fill="x", pady=10)
 
-        tk.Label(self.content_frame, text="Ключ шифрования:").pack(anchor="w", **pad_opts)
-        self.stego_key_entry = tk.Entry(self.content_frame, width=50)
-        self.stego_key_entry.pack(fill="x", **pad_opts)
+        # Разделитель
+        ttk.Separator(self.content_frame, orient="horizontal").pack(fill="x", pady=20)
 
-        tk.Label(self.content_frame, text="Изображение-контейнер:").pack(anchor="w", **pad_opts)
-        self.stego_image_path = tk.StringVar()
-        tk.Entry(self.content_frame, textvariable=self.stego_image_path, 
-                state="readonly").pack(fill="x", **pad_opts)
-        tk.Button(self.content_frame, text="📂 Выбрать изображение (PNG/BMP)", 
-                 command=self._select_cover_image).pack(fill="x", **pad_opts)
+        # Блок "Извлечь"
+        tk.Label(self.content_frame, text="🔍 Извлечь текст из изображения", 
+                 font=("Segoe UI", 12, "bold"), fg="#c0392b").pack(anchor="w")
 
-        tk.Button(self.content_frame, text="🖼 Спрятать текст в картинку", 
-                 command=self._hide_text_in_image, bg="#27ae60", fg="white",
-                 font=("Arial", 10, "bold"), pady=8).pack(fill="x", pady=10)
+        tk.Label(self.content_frame, text="Картинка с секретом:").pack(anchor="w", pady=(5,0))
+        ttk.Entry(self.content_frame, textvariable=self.stego_secret_path, state="readonly").pack(fill="x", pady=2)
+        ttk.Button(self.content_frame, text="📂 Выбрать картинку", command=self._select_secret_image).pack(fill="x", pady=5)
 
-        # === Вкладка 2: Извлечь текст ===
-        tk.Label(self.content_frame, text="🔓 Извлечь текст из изображения", 
-                font=("Arial", 11, "bold"), fg="#e74c3c").pack(anchor="w", pady=(20, 10))
+        tk.Label(self.content_frame, text="Ключ:").pack(anchor="w")
+        self.stego_entry_key_decrypt = tk.Entry(self.content_frame)
+        self.stego_entry_key_decrypt.pack(fill="x", pady=5)
 
-        tk.Label(self.content_frame, text="Изображение со скрытым текстом:").pack(anchor="w", **pad_opts)
-        self.stego_secret_path = tk.StringVar()
-        tk.Entry(self.content_frame, textvariable=self.stego_secret_path, 
-                state="readonly").pack(fill="x", **pad_opts)
-        tk.Button(self.content_frame, text="📂 Выбрать секретное изображение", 
-                 command=self._select_secret_image).pack(fill="x", **pad_opts)
+        tk.Button(self.content_frame, text="🔍 Извлечь", command=self._action_extract, 
+                  bg="#c0392b", fg="white", font=("Segoe UI", 10, "bold")).pack(fill="x", pady=10)
 
-        tk.Label(self.content_frame, text="Ключ дешифрования:").pack(anchor="w", **pad_opts)
-        self.stego_decrypt_key = tk.Entry(self.content_frame, width=50)
-        self.stego_decrypt_key.pack(fill="x", **pad_opts)
+        tk.Label(self.content_frame, text="Результат извлечения:").pack(anchor="w", pady=(10,0))
+        self.stego_txt_output = tk.Text(self.content_frame, height=4, state="disabled", bg="#f9f9f9")
+        self.stego_txt_output.pack(fill="x", pady=5)
 
-        tk.Button(self.content_frame, text="🔍 Извлечь и расшифровать", 
-                 command=self._extract_and_decrypt, bg="#e74c3c", fg="white",
-                 font=("Arial", 10, "bold"), pady=8).pack(fill="x", pady=10)
+    # ==========================================
+    # ⚙️ ФУНКЦИОНАЛ (ДЕЙСТВИЯ)
+    # ==========================================
 
-        # Результат извлечения
-        tk.Label(self.content_frame, text="Извлечённый текст:").pack(anchor="w", **pad_opts)
-        self.stego_result = tk.Text(self.content_frame, height=4, state="disabled", 
-                                   wrap="word", bg="#f8f9fa")
-        self.stego_result.pack(fill="x", **pad_opts)
+    def _action_encrypt(self):
+        self._process_crypto(self._action_encrypt_logic, self.txt_input, self.entry_key, self.txt_output)
 
-    # === Методы для стеганографии ===
-    
+    def _action_decrypt(self):
+        self._process_crypto(self._action_decrypt_logic, self.txt_input, self.entry_key, self.txt_output)
+
+    def _process_crypto(self, logic_func, input_widget, key_widget, output_widget):
+        try:
+            text = input_widget.get("1.0", tk.END).strip()
+            key = key_widget.get().strip()
+            
+            if not text or not key:
+                messagebox.showwarning("Ошибка ввода", "Заполните текст и ключ!")
+                return
+
+            result = logic_func(text, key)
+            
+            output_widget.config(state="normal")
+            output_widget.delete("1.0", tk.END)
+            output_widget.insert("1.0", result)
+            output_widget.config(state="disabled")
+
+        except Exception as e:
+            messagebox.showerror("Ошибка обработки", str(e))
+
+    def _action_encrypt_logic(self, text, key):
+        return CryptoService.encrypt(text, key)
+
+    def _action_decrypt_logic(self, text, key):
+        return CryptoService.decrypt(text, key)
+
+    def _action_hide(self):
+        try:
+            text = self.stego_txt_input.get("1.0", tk.END).strip()
+            key = self.stego_entry_key.get().strip()
+            cover = self.stego_cover_path.get()
+
+            if not text or not key or not cover:
+                messagebox.showwarning("Ошибка", "Заполните все поля и выберите картинку!")
+                return
+
+            # Сохраняем результат сразу в папку cache для порядка
+            out_path = os.path.join(self.CACHE_DIR, "stego_result.png")
+            
+            StegoService.hide_encrypted_text(text, key, cover, out_path)
+            messagebox.showinfo("Успех", f"Секрет спрятан!\nФайл сохранен в:\n{out_path}")
+
+        except Exception as e:
+            messagebox.showerror("Ошибка стеганографии", str(e))
+
+    def _action_extract(self):
+        try:
+            secret = self.stego_secret_path.get()
+            key = self.stego_entry_key_decrypt.get().strip()
+
+            if not secret or not key:
+                messagebox.showwarning("Ошибка", "Выберите картинку и введите ключ!")
+                return
+
+            result = StegoService.extract_and_decrypt(secret, key)
+            
+            self.stego_txt_output.config(state="normal")
+            self.stego_txt_output.delete("1.0", tk.END)
+            self.stego_txt_output.insert("1.0", result['decrypted_text'])
+            self.stego_txt_output.config(state="disabled")
+            
+            messagebox.showinfo("Успех", "Текст успешно извлечен!")
+
+        except Exception as e:
+            messagebox.showerror("Ошибка", str(e))
+
+    # ==========================================
+    # 🛠 УТИЛИТЫ И ФАЙЛЫ
+    # ==========================================
+
+    def _load_file(self):
+        path = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")])
+        if path:
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    self.txt_input.delete("1.0", tk.END)
+                    self.txt_input.insert("1.0", f.read())
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось прочитать файл:\n{e}")
+
+    def _save_result(self):
+        text = self.txt_output.get("1.0", tk.END).strip()
+        if not text:
+            messagebox.showwarning("Пусто", "Нет данных для сохранения!")
+            return
+
+        path = filedialog.asksaveasfilename(defaultextension=".txt", initialdir=self.CACHE_DIR)
+        if path:
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(text)
+                messagebox.showinfo("Готово", "Файл сохранен.")
+            except Exception as e:
+                messagebox.showerror("Ошибка", str(e))
+
+    def _copy_result(self):
+        text = self.txt_output.get("1.0", tk.END).strip()
+        if text:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            messagebox.showinfo("Копирование", "Скопировано в буфер обмена.")
+
+    # ==========================================
+    # 🗑 ОЧИСТКА КЕША
+    # ==========================================
+
+    def _clear_cache(self):
+        """Очищает поля ввода и удаляет временные файлы из папки cache"""
+        answer = messagebox.askyesno("Подтверждение", 
+                                     "Очистить все поля и удалить временные файлы из папки cache?")
+        if answer:
+            # 1. Очистка полей ввода
+            self.txt_input.delete("1.0", tk.END)
+            self.txt_output.config(state="normal")
+            self.txt_output.delete("1.0", tk.END)
+            self.txt_output.config(state="disabled")
+            self.entry_key.delete(0, tk.END)
+
+            # Очистка полей стеганографии (если виджеты существуют)
+            if hasattr(self, 'stego_txt_input'):
+                self.stego_txt_input.delete("1.0", tk.END)
+                self.stego_entry_key.delete(0, tk.END)
+                self.stego_entry_key_decrypt.delete(0, tk.END)
+                self.stego_txt_output.config(state="normal")
+                self.stego_txt_output.delete("1.0", tk.END)
+                self.stego_txt_output.config(state="disabled")
+                self.stego_cover_path.set("")
+                self.stego_secret_path.set("")
+
+            # 2. Очистка файлов
+            count = 0
+            try:
+                for filename in os.listdir(self.CACHE_DIR):
+                    file_path = os.path.join(self.CACHE_DIR, filename)
+                    if os.path.isfile(file_path) or os.path.islink(file_path):
+                        os.unlink(file_path)
+                        count += 1
+                    elif os.path.isdir(file_path):
+                        shutil.rmtree(file_path)
+                        count += 1
+            except Exception as e:
+                messagebox.showerror("Ошибка очистки", f"Не удалось удалить некоторые файлы:\n{e}")
+
+            messagebox.showinfo("Очистка", f"Удалено файлов: {count}\nПоля очищены.")
+
+    # ==========================================
+    #  КРИПТОПАСПОРТ
+    # ==========================================
+
+    def _create_passport(self):
+        text = self.txt_output.get("1.0", tk.END).strip()
+        if not text:
+            messagebox.showwarning("Нет данных", "Сначала выполните шифрование.")
+            return
+
+        try:
+            # Создаем хеши для отчета
+            input_hash = hashlib.sha256(self.txt_input.get("1.0", tk.END).encode()).hexdigest()[:12]
+            output_hash = hashlib.sha256(text.encode()).hexdigest()[:12]
+            
+            passport_data = {
+                "app_version": "1.0",
+                "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "algorithm": "AES-256-GCM (StdLib Mode)",
+                "integrity_check": "HMAC-SHA256",
+                "input_preview_hash": input_hash,
+                "output_preview_hash": output_hash,
+                "note": "Этот файл не содержит ключей шифрования."
+            }
+
+            filename = f"passport_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
+            save_path = os.path.join(self.CACHE_DIR, filename)
+
+            with open(save_path, "w", encoding="utf-8") as f:
+                json.dump(passport_data, f, indent=4, ensure_ascii=False)
+
+            messagebox.showinfo("Паспорт", f"Отчет сохранен:\n{save_path}")
+
+        except Exception as e:
+            messagebox.showerror("Ошибка", str(e))
+
+    # Диалоги выбора файлов для стеганографии
     def _select_cover_image(self):
-        """Выбор изображения-контейнера"""
-        file_path = filedialog.askopenfilename(
-            title="Выберите изображение-контейнер",
-            filetypes=[("PNG files", "*.png"), ("BMP files", "*.bmp"), ("All files", "*.*")]
-        )
-        if file_path:
-            self.stego_image_path.set(file_path)
+        path = filedialog.askopenfilename(filetypes=[("Images", "*.png;*.bmp")])
+        if path: self.stego_cover_path.set(path)
 
     def _select_secret_image(self):
-        """Выбор изображения со скрытыми данными"""
-        file_path = filedialog.askopenfilename(
-            title="Выберите изображение со скрытым текстом",
-            filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
-        )
-        if file_path:
-            self.stego_secret_path.set(file_path)
+        path = filedialog.askopenfilename(filetypes=[("Images", "*.png;*.bmp")])
+        if path: self.stego_secret_path.set(path)
 
-    def _hide_text_in_image(self):
-        """Спрятать текст в изображение"""
-        try:
-            text = self.stego_text_in.get("1.0", tk.END).strip()
-            key = self.stego_key_entry.get().strip()
-            cover_image = self.stego_image_path.get()
-            
-            if not text or not key or not cover_image:
-                messagebox.showwarning("Ввод", "Заполните все поля и выберите изображение")
-                return
-            
-            # Диалог сохранения
-            output_path = filedialog.asksaveasfilename(
-                title="Сохранить изображение со скрытым текстом",
-                defaultextension=".png",
-                filetypes=[("PNG files", "*.png")],
-                initialfile="secret_image.png"
-            )
-            
-            if output_path:
-                result = StegoService.hide_encrypted_text(text, key, cover_image, output_path)
-                messagebox.showinfo(
-                    "Успех", 
-                    f"✅ Текст зашифрован и спрятан!\n\n"
-                    f"📊 Детали:\n"
-                    f"• Размер оригинала: {result['original_size_kb']} KB\n"
-                    f"• Размер результата: {result['result_size_kb']} KB\n"
-                    f"• Длина зашифрованного текста: {result['encrypted_text_length']} симв.\n\n"
-                    f"Сохранено в:\n{output_path}"
-                )
-        except Exception as e:
-            messagebox.showerror("Ошибка", str(e))
 
-    def _extract_and_decrypt(self):
-        """Извлечь и расшифровать текст"""
-        try:
-            secret_image = self.stego_secret_path.get()
-            key = self.stego_decrypt_key.get().strip()
-            
-            if not secret_image or not key:
-                messagebox.showwarning("Ввод", "Выберите изображение и введите ключ")
-                return
-            
-            result = StegoService.extract_and_decrypt(secret_image, key)
-            
-            # Показываем результат
-            self.stego_result.config(state="normal")
-            self.stego_result.delete("1.0", tk.END)
-            self.stego_result.insert("1.0", result['decrypted_text'])
-            self.stego_result.config(state="disabled")
-            
-            messagebox.showinfo(
-                "Успех",
-                f"✅ Данные извлечены и расшифрованы!\n\n"
-                f"📊 Детали:\n"
-                f"• Длина извлечённых данных: {result['hidden_data_length']} симв.\n"
-                f"• Длина расшифрованного текста: {result['decrypted_length']} симв."
-            )
-        except Exception as e:
-            messagebox.showerror("Ошибка", str(e))
-
-    # === Методы для обычного шифрования (оставляем как были) ===
-    
-    def _set_output(self, text: str):
-        self.text_out.config(state="normal")
-        self.text_out.delete("1.0", tk.END)
-        self.text_out.insert("1.0", text)
-        self.text_out.config(state="disabled")
-
-    def _get_input(self) -> str:
-        return self.text_in.get("1.0", tk.END).strip()
-
-    def _get_output(self) -> str:
-        return self.text_out.get("1.0", tk.END).strip()
-
-    def _load_input(self):
-        file_path = filedialog.askopenfilename(
-            title="Выберите файл",
-            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
-        )
-        if file_path:
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                self.text_in.delete("1.0", tk.END)
-                self.text_in.insert("1.0", content)
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось прочитать файл:\n{str(e)}")
-
-    def _save_output(self):
-        content = self._get_output()
-        if not content:
-            messagebox.showwarning("Нет данных", "Сначала выполните шифрование")
-            return
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".txt",
-            filetypes=[("Text files", "*.txt")],
-            initialfile="result.txt"
-        )
-        if file_path:
-            try:
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                messagebox.showinfo("Успех", "Файл сохранён")
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось сохранить:\n{str(e)}")
-
-    def _copy_output(self):
-        content = self._get_output()
-        if content:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(content)
-            messagebox.showinfo("Копирование", "Скопировано в буфер обмена")
-
-    def _encrypt(self):
-        try:
-            plaintext = self._get_input()
-            key = self.key_entry.get().strip()
-            if not plaintext or not key:
-                messagebox.showwarning("Ввод", "Заполните текст и ключ")
-                return
-            result = CryptoService.encrypt(plaintext, key)
-            self._set_output(result)
-        except Exception as e:
-            messagebox.showerror("Ошибка", str(e))
-
-    def _decrypt(self):
-        try:
-            ciphertext = self._get_input()
-            key = self.key_entry.get().strip()
-            if not ciphertext or not key:
-                messagebox.showwarning("Ввод", "Заполните текст и ключ")
-                return
-            result = CryptoService.decrypt(ciphertext, key)
-            self._set_output(result)
-        except Exception as e:
-            messagebox.showerror("Ошибка", str(e))
-
-    def _generate_passport(self):
-        import hashlib
-        import json
-        from datetime import datetime
-        
-        content = self._get_output()
-        if not content:
-            messagebox.showwarning("Нет данных", "Сначала выполните операцию")
-            return
-
-        input_hash = hashlib.sha256(self._get_input().encode()).hexdigest()[:16]
-        output_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
-        key_fingerprint = hashlib.sha256(self.key_entry.get().encode()).hexdigest()[:8]
-
-        passport = {
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "algorithm": "AES-256-GCM + PBKDF2",
-            "operation": "Encrypt/Decrypt",
-            "input_sha256_prefix": input_hash,
-            "output_sha256_prefix": output_hash,
-            "key_fingerprint": f"SHA256:{key_fingerprint}...",
-            "integrity": "VERIFIED (GCM Tag)"
-        }
-
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".txt",
-            filetypes=[("Text files", "*.txt")],
-            initialfile="crypto_passport.txt"
-        )
-        if file_path:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(passport, f, indent=4, ensure_ascii=False)
-            messagebox.showinfo("Готово", "Криптографический паспорт сохранён")
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = EncryptionApp(root)
+    root.mainloop()
 
 
 def run():
+    """Точка входа для запуска приложения"""
     root = tk.Tk()
-    EncryptionApp(root)
+    app = EncryptionApp(root)
     root.mainloop()
