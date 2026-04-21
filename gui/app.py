@@ -31,8 +31,6 @@ class EncryptionApp:
         self.root.title("CryptoProject Pro")
         self.root.geometry("900x700")
         self.root.minsize(700, 500)
-        
-        # Делаем окно белым по умолчанию
         self.root.configure(bg="white")
 
         style = ttk.Style()
@@ -53,9 +51,9 @@ class EncryptionApp:
         self._build_main_interface()
 
     def _build_main_interface(self):
-        """Создает интерфейс с прокруткой и белым фоном"""
+        """Создает интерфейс с прокруткой"""
         
-        # === ВЕРХНЯЯ ПАНЕЛЬ (Белая) ===
+        # === ВЕРХНЯЯ ПАНЕЛЬ ===
         header = tk.Frame(self.root, bg="white", height=60)
         header.pack(fill="x", side="top")
         header.pack_propagate(False)
@@ -63,7 +61,6 @@ class EncryptionApp:
         tk.Label(header, text="🛡️ CryptoProject Pro", 
                  font=("Segoe UI", 18, "bold"), bg="white", fg="#2c3e50").pack(pady=15)
 
-        # Панель кнопок режимов (Белая)
         mode_frame = tk.Frame(self.root, bg="white")
         mode_frame.pack(fill="x", pady=5)
 
@@ -80,44 +77,34 @@ class EncryptionApp:
         self.btn_clear_cache.pack(side="right", padx=10, pady=5)
 
         # === ЗОНА ПРОКРУТКИ (CANVAS + SCROLLBAR) ===
-        # 1. Canvas (Белый)
         self.canvas = tk.Canvas(self.root, bg="white", highlightthickness=0)
         self.canvas.pack(side="left", fill="both", expand=True, padx=15, pady=10)
 
-        # 2. Scrollbar
         self.scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=self.canvas.yview)
         self.scrollbar.pack(side="right", fill="y")
 
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
-        # 3. Внутренний Frame (Белый)
         self.content_frame = tk.Frame(self.canvas, bg="white")
         self.window_id = self.canvas.create_window((0, 0), window=self.content_frame, anchor="nw")
 
-        # === МАГИЯ РАЗМЕРОВ ===
-        
-        # А) Обновление высоты (чтобы работал скролл вниз)
+        # Логика прокрутки и растягивания ширины
         def _on_frame_configure(event):
             self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         
-        self.content_frame.bind("<Configure>", _on_frame_configure)
-
-        # Б) Обновление ширины (чтобы кнопки растягивались на весь экран)
         def _on_canvas_configure(event):
             self.canvas.itemconfig(self.window_id, width=event.width)
         
+        self.content_frame.bind("<Configure>", _on_frame_configure)
         self.canvas.bind("<Configure>", _on_canvas_configure)
 
-        # В) Колесико мыши
         def _on_mousewheel(event):
             self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
         self.canvas.bind_all("<MouseWheel>", _on_mousewheel)
 
-        # Инициализация
         self._switch_mode("crypto")
 
     def _switch_mode(self, mode):
-        """Переключает режимы"""
         for widget in self.content_frame.winfo_children():
             widget.destroy()
 
@@ -149,7 +136,6 @@ class EncryptionApp:
         actions_frame = tk.Frame(self.content_frame, bg="white")
         actions_frame.pack(fill="x", pady=15)
         
-        # Кнопки растягиваются благодаря fill="x" и expand=True + фиксу ширины Canvas
         tk.Button(actions_frame, text="🔒 Зашифровать", command=self._action_encrypt, 
                   bg="#2ecc71", fg="white", font=("Segoe UI", 11, "bold")).pack(side="left", fill="x", expand=True, padx=5)
         tk.Button(actions_frame, text="🔓 Расшифровать", command=self._action_decrypt, 
@@ -228,8 +214,16 @@ class EncryptionApp:
         self.stego_entry_key_decrypt = tk.Entry(self.content_frame)
         self.stego_entry_key_decrypt.pack(fill="x", pady=5)
 
-        tk.Button(self.content_frame, text="🔍 Извлечь и расшифровать", command=self._action_extract, 
-                  bg="#c0392b", fg="white", font=("Segoe UI", 11, "bold")).pack(fill="x", pady=15)
+        # Кнопки извлечения и ОЧИСТКИ
+        actions_frame_stego = tk.Frame(self.content_frame, bg="white")
+        actions_frame_stego.pack(fill="x", pady=10)
+        
+        tk.Button(actions_frame_stego, text="🔍 Извлечь", command=self._action_extract, 
+                  bg="#c0392b", fg="white", font=("Segoe UI", 11, "bold")).pack(side="left", fill="x", expand=True, padx=5)
+        
+        # 🔹 КНОПКА ОЧИСТКИ РЕЗУЛЬТАТА
+        tk.Button(actions_frame_stego, text="🧹 Очистить результат", command=self._clear_stego_result, 
+                  bg="#f39c12", fg="white", font=("Segoe UI", 11, "bold")).pack(side="left", fill="x", expand=True, padx=5)
 
         tk.Label(self.content_frame, text="Результат:", bg="white").pack(anchor="w", pady=(5,0))
         self.stego_txt_output = tk.Text(self.content_frame, height=4, state="disabled", bg="#f9f9f9")
@@ -286,7 +280,11 @@ class EncryptionApp:
             if not text or not key or not cover:
                 messagebox.showwarning("Ошибка", "Заполните все поля!")
                 return
-            out_path = os.path.join(self.CACHE_DIR, "stego_result.png")
+            
+            # 🔹 Имя файла с датой и временем
+            now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            out_path = os.path.join(self.CACHE_DIR, f"stego_secret_{now}.png")
+            
             StegoService.hide_encrypted_text(text, key, cover, out_path)
             messagebox.showinfo("Успех", f"Секрет спрятан!\nФайл сохранен в:\n{out_path}")
         except Exception as e:
@@ -308,6 +306,12 @@ class EncryptionApp:
         except Exception as e:
             messagebox.showerror("Ошибка", str(e))
 
+    # 🔹 ФУНКЦИЯ: Очистка результата в стеганографии
+    def _clear_stego_result(self):
+        self.stego_txt_output.config(state="normal")
+        self.stego_txt_output.delete("1.0", tk.END)
+        self.stego_txt_output.config(state="disabled")
+
     def _load_file(self):
         path = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")])
         if path:
@@ -321,7 +325,15 @@ class EncryptionApp:
     def _save_result(self):
         text = self.txt_output.get("1.0", tk.END).strip()
         if not text: return
-        path = filedialog.asksaveasfilename(defaultextension=".txt", initialdir=self.CACHE_DIR)
+        
+        # 🔹 Имя файла с датой и временем
+        now = datetime.now().strftime("%Y-%m-%d_%H-%M")
+        path = filedialog.asksaveasfilename(
+            defaultextension=".txt", 
+            initialdir=self.CACHE_DIR,
+            initialfile=f"encrypted_{now}.txt"
+        )
+        
         if path:
             try:
                 with open(path, "w", encoding="utf-8") as f: f.write(text)
@@ -335,36 +347,91 @@ class EncryptionApp:
             self.root.clipboard_append(text)
             messagebox.showinfo("Копирование", "Скопировано!")
 
+    # 🔹 ИСПРАВЛЕННАЯ ФУНКЦИЯ ОЧИСТКИ КЕША
     def _clear_cache(self):
         if messagebox.askyesno("Подтверждение", "Очистить поля и временные файлы?"):
-            if hasattr(self, 'txt_input'): self.txt_input.delete("1.0", tk.END)
-            if hasattr(self, 'entry_key'): self.entry_key.delete(0, tk.END)
+            # Безопасная очистка текстовых полей с проверкой существования виджетов
+            def safe_delete(widget):
+                try:
+                    if widget and widget.winfo_exists():
+                        widget.config(state="normal")
+                        widget.delete("1.0", tk.END)
+                        widget.config(state="disabled")
+                except:
+                    pass
+            
+            def safe_clear_entry(widget):
+                try:
+                    if widget and widget.winfo_exists():
+                        widget.delete(0, tk.END)
+                except:
+                    pass
+
+            # Очистка режима шифрования
+            if hasattr(self, 'txt_input'):
+                try:
+                    if self.txt_input.winfo_exists():
+                        self.txt_input.delete("1.0", tk.END)
+                except:
+                    pass
+                    
+            if hasattr(self, 'entry_key'):
+                safe_clear_entry(self.entry_key)
+                
             if hasattr(self, 'txt_output'):
-                self.txt_output.config(state="normal"); self.txt_output.delete("1.0", tk.END); self.txt_output.config(state="disabled")
-            
-            if hasattr(self, 'stego_txt_input'): self.stego_txt_input.delete("1.0", tk.END)
-            if hasattr(self, 'stego_entry_key'): self.stego_entry_key.delete(0, tk.END)
-            if hasattr(self, 'stego_entry_key_decrypt'): self.stego_entry_key_decrypt.delete(0, tk.END)
+                safe_delete(self.txt_output)
+
+            # Очистка режима стеганографии
+            if hasattr(self, 'stego_txt_input'):
+                try:
+                    if self.stego_txt_input.winfo_exists():
+                        self.stego_txt_input.delete("1.0", tk.END)
+                except:
+                    pass
+                    
+            if hasattr(self, 'stego_entry_key'):
+                safe_clear_entry(self.stego_entry_key)
+                
+            if hasattr(self, 'stego_entry_key_decrypt'):
+                safe_clear_entry(self.stego_entry_key_decrypt)
+                
             if hasattr(self, 'stego_txt_output'):
-                self.stego_txt_output.config(state="normal"); self.stego_txt_output.delete("1.0", tk.END); self.stego_txt_output.config(state="disabled")
-            
+                safe_delete(self.stego_txt_output)
+
+            # Сброс Drag-and-Drop зон
             if hasattr(self, 'cover_drop_zone'):
-                self.cover_drop_zone.config(text="📁 Перетащите сюда или нажмите", bg="#ecf0f1", fg="#7f8c8d")
-                self.cover_path_label.config(text="Файл не выбран", fg="#95a5a6")
+                try:
+                    if self.cover_drop_zone.winfo_exists():
+                        self.cover_drop_zone.config(text="📁 Перетащите сюда или нажмите", bg="#ecf0f1", fg="#7f8c8d")
+                        self.cover_path_label.config(text="Файл не выбран", fg="#95a5a6")
+                except:
+                    pass
                 self.stego_cover_path.set("")
+                
             if hasattr(self, 'secret_drop_zone'):
-                self.secret_drop_zone.config(text="📁 Перетащите сюда или нажмите", bg="#ecf0f1", fg="#7f8c8d")
-                self.secret_path_label.config(text="Файл не выбран", fg="#95a5a6")
+                try:
+                    if self.secret_drop_zone.winfo_exists():
+                        self.secret_drop_zone.config(text="📁 Перетащите сюда или нажмите", bg="#ecf0f1", fg="#7f8c8d")
+                        self.secret_path_label.config(text="Файл не выбран", fg="#95a5a6")
+                except:
+                    pass
                 self.stego_secret_path.set("")
 
+            # Удаление файлов
             count = 0
             try:
                 for f in os.listdir(self.CACHE_DIR):
                     fp = os.path.join(self.CACHE_DIR, f)
-                    if os.path.isfile(fp): os.unlink(fp); count += 1
-                    elif os.path.isdir(fp): shutil.rmtree(fp); count += 1
-            except: pass
-            messagebox.showinfo("Очистка", f"Удалено файлов: {count}")
+                    if os.path.isfile(fp): 
+                        os.unlink(fp)
+                        count += 1
+                    elif os.path.isdir(fp): 
+                        shutil.rmtree(fp)
+                        count += 1
+            except Exception as e:
+                print(f"Ошибка при удалении файлов: {e}")
+                
+            messagebox.showinfo("Очистка", f"Удалено файлов: {count}\nПоля очищены.")
 
     def _create_passport(self):
         text = self.txt_output.get("1.0", tk.END).strip()
@@ -378,7 +445,9 @@ class EncryptionApp:
                 "integrity": "HMAC-SHA256",
                 "output_hash": hashlib.sha256(text.encode()).hexdigest()[:12]
             }
-            path = os.path.join(self.CACHE_DIR, f"passport_{datetime.now().strftime('%Y%m%d')}.json")
+            # 🔹 Имя файла с датой
+            now = datetime.now().strftime("%Y-%m-%d_%H-%M")
+            path = os.path.join(self.CACHE_DIR, f"passport_{now}.json")
             with open(path, "w", encoding="utf-8") as f: json.dump(data, f, indent=4)
             messagebox.showinfo("Готово", f"Паспорт сохранен:\n{path}")
         except Exception as e: messagebox.showerror("Ошибка", str(e))
