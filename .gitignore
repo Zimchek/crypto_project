@@ -1,4 +1,4 @@
-# === Python ===
+# === Python Artifacts ===
 __pycache__/
 *.py[cod]
 *$py.class
@@ -20,31 +20,31 @@ wheels/
 .installed.cfg
 *.egg
 
-# === Виртуальные окружения ===
+# === Virtual Environments ===
 venv/
 ENV/
 env/
-.venv
+.venv/
 
-# === IDE ===
+# === IDE Settings (VS Code, PyCharm) ===
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# === PyInstaller ===
-*.spec
+# === PyInstaller Build Folders ===
+# Эти папки создаются при сборке .exe
 build/
+dist/
+*.spec
 
-
-# === Кеш и временные файлы ===
+# === CryptoProject Specific ===
+# Папка с кешем, временными файлами и логами (создается приложением)
 cache/
-*.cache
-*.log
-*.tmp
+logs/
 
-# === Операционные системы ===
+# === OS Junk Files ===
 .DS_Store
 .DS_Store?
 ._*
@@ -54,22 +54,6 @@ ehthumbs.db
 Thumbs.db
 Desktop.ini
 
-# === Личные данные и ключи ===
-*.key
-*.pem
-secrets.json
-config.local.json
-
-# === Документация ===
-*.pdf
-*.doc
-*.docx
-
-# === Тесты и покрытие ===
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-
-# === Jupyter Notebook ===
-.ipynb_checkpoints
+# === Compiled Executable ===
+# Мы не храним готовый .exe файл в репозитории (он выкладывается через Releases)
+*.exe
