@@ -108,11 +108,12 @@ class EncryptionApp:
         self.logger.log(f"Cache directory: {self.CACHE_DIR}")
 
         # Инициализация базы данных
+                # Инициализация базы данных
         self.db = None
         if DB_AVAILABLE:
             try:
-                self.db = AuditDB(server="localhost", database="CryptoAudit")
-                self.logger.log("DATABASE CONNECTED: SQL Server - CryptoAudit")
+                self.db = AuditDB()  # ← ← ← ИЗМЕНИ ТОЛЬКО ЭТУ СТРОКУ
+                self.logger.log("DATABASE CONNECTED: SQLite (audit.db)")
             except Exception as e:
                 self.logger.log(f"DATABASE CONNECTION FAILED: {str(e)}")
                 print(f"⚠️ База данных не подключена: {e}")
