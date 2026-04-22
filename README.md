@@ -8,7 +8,7 @@
 ## 📥 Скачать
 
 ### Готовое приложение (Windows)
-[⬇️ Скачать CryptoProject_v1.exe](https://github.com/ТВОЙ_НИК/Zimchek/releases/download/v1.0/CryptoProject_v1.exe)
+[⬇️ Скачать CryptoProject_v1.exe]([https://github.com/ТВОЙ_НИК/Zimchek/releases/download/v1.0/CryptoProject_v1.exe](https://github.com/Zimchek/CryptoProject))
 
 > **Размер:** ~45 MB | **Версия:** 1.0 | **Требования:** Windows 7 и выше
 
