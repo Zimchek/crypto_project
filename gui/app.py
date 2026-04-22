@@ -15,6 +15,14 @@ except ImportError:
     TKDND_AVAILABLE = False
     print("⚠️ tkinterdnd2 не найден. Drag-and-drop отключен.")
 
+# 2. Импорт базы данных
+try:
+    from crypto_core.db_manager import AuditDB
+    DB_AVAILABLE = True
+except ImportError:
+    DB_AVAILABLE = False
+    print("⚠️ db_manager не найден. Логирование в БД отключено.")
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 try:
@@ -26,7 +34,7 @@ except ImportError as e:
 
 
 class ActivityLogger:
-    """Класс для логирования действий пользователя"""
+    """Класс для логирования действий пользователя в файл"""
     
     def __init__(self, log_dir):
         self.log_dir = log_dir
@@ -42,7 +50,6 @@ class ActivityLogger:
         self.log_path = os.path.join(self.log_dir, log_filename)
         
         with open(self.log_path, "w", encoding="utf-8") as f:
-            # Большой заголовок с датой
             f.write("=" * 80 + "\n")
             f.write(" " * 20 + "CRYPTO PROJECT - ACTIVITY LOG\n")
             f.write(" " * 25 + f"Date: {self.session_date}\n")
@@ -54,15 +61,21 @@ class ActivityLogger:
     def log(self, action: str):
         """Записывает действие в лог с временной меткой"""
         timestamp = datetime.now().strftime("%H:%M:%S")
-        with open(self.log_path, "a", encoding="utf-8") as f:
-            f.write(f"[{timestamp}] {action}\n")
+        try:
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write(f"[{timestamp}] {action}\n")
+        except:
+            pass
     
     def log_section(self, section_name: str):
         """Добавляет разделитель секции"""
-        with open(self.log_path, "a", encoding="utf-8") as f:
-            f.write("\n" + "-" * 80 + "\n")
-            f.write(f">>> {section_name}\n")
-            f.write("-" * 80 + "\n")
+        try:
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write("\n" + "-" * 80 + "\n")
+                f.write(f">>> {section_name}\n")
+                f.write("-" * 80 + "\n")
+        except:
+            pass
 
 
 class EncryptionApp:
@@ -94,10 +107,24 @@ class EncryptionApp:
         self.logger.log("APPLICATION STARTED")
         self.logger.log(f"Cache directory: {self.CACHE_DIR}")
 
+        # Инициализация базы данных
+        self.db = None
+        if DB_AVAILABLE:
+            try:
+                self.db = AuditDB(server="localhost", database="CryptoAudit")
+                self.logger.log("DATABASE CONNECTED: SQL Server - CryptoAudit")
+            except Exception as e:
+                self.logger.log(f"DATABASE CONNECTION FAILED: {str(e)}")
+                print(f"⚠️ База данных не подключена: {e}")
+                print("Приложение будет работать без логирования в БД")
+
         self.stego_cover_path = tk.StringVar()
         self.stego_secret_path = tk.StringVar()
 
         self._build_main_interface()
+        
+        # Обработка закрытия окна
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_main_interface(self):
         """Создает интерфейс с прокруткой"""
@@ -280,7 +307,6 @@ class EncryptionApp:
                   command=lambda: self._action_extract(), 
                   bg="#c0392b", fg="white", font=("Segoe UI", 11, "bold")).pack(side="left", fill="x", expand=True, padx=5)
         
-        # 🔹 КНОПКА ОЧИСТКИ РЕЗУЛЬТАТА
         tk.Button(actions_frame_stego, text="🧹 Очистить результат", 
                   command=lambda: self._clear_stego_result(), 
                   bg="#f39c12", fg="white", font=("Segoe UI", 11, "bold")).pack(side="left", fill="x", expand=True, padx=5)
@@ -300,6 +326,8 @@ class EncryptionApp:
             if path_var == self.stego_cover_path:
                 self.cover_path_label.config(text=file_path, fg="#27ae60")
                 self.logger.log(f"DRAG-DROP COVER IMAGE: {filename}")
+                if self.db:
+                    self.db.log_operation("FILE_SELECT", "STEGO", "SUCCESS", input_file=filename)
             else:
                 self.secret_path_label.config(text=file_path, fg="#c0392b")
                 self.logger.log(f"DRAG-DROP SECRET IMAGE: {filename}")
@@ -313,18 +341,20 @@ class EncryptionApp:
 
     def _action_encrypt(self):
         self.logger.log("BUTTON CLICKED: ENCRYPT")
-        self._process_crypto(self._action_encrypt_logic, self.txt_input, self.entry_key, self.txt_output)
+        self._process_crypto(self._action_encrypt_logic, self.txt_input, self.entry_key, self.txt_output, "ENCRYPT")
 
     def _action_decrypt(self):
         self.logger.log("BUTTON CLICKED: DECRYPT")
-        self._process_crypto(self._action_decrypt_logic, self.txt_input, self.entry_key, self.txt_output)
+        self._process_crypto(self._action_decrypt_logic, self.txt_input, self.entry_key, self.txt_output, "DECRYPT")
 
-    def _process_crypto(self, logic_func, input_widget, key_widget, output_widget):
+    def _process_crypto(self, logic_func, input_widget, key_widget, output_widget, op_type):
         try:
             text = input_widget.get("1.0", tk.END).strip()
             key = key_widget.get().strip()
             if not text or not key:
                 self.logger.log("ERROR: Empty text or key")
+                if self.db:
+                    self.db.log_operation(op_type, "AES-256-GCM", "FAILED", error="Empty text or key")
                 messagebox.showwarning("Ошибка", "Заполните текст и ключ!")
                 return
             result = logic_func(text, key)
@@ -332,9 +362,13 @@ class EncryptionApp:
             output_widget.delete("1.0", tk.END)
             output_widget.insert("1.0", result)
             output_widget.config(state="disabled")
-            self.logger.log(f"CRYPTO OPERATION SUCCESS: {len(result)} chars")
+            self.logger.log(f"CRYPTO OPERATION SUCCESS: {op_type} - {len(result)} chars")
+            if self.db:
+                self.db.log_operation(op_type, "AES-256-GCM", "SUCCESS", key=key)
         except Exception as e:
             self.logger.log(f"CRYPTO OPERATION FAILED: {str(e)}")
+            if self.db:
+                self.db.log_operation(op_type, "AES-256-GCM", "FAILED", key=key, error=str(e))
             messagebox.showerror("Ошибка", str(e))
 
     def _action_encrypt_logic(self, text, key): 
@@ -353,18 +387,26 @@ class EncryptionApp:
             cover = self.stego_cover_path.get()
             if not text or not key or not cover:
                 self.logger.log("ERROR: Missing fields for stego hide")
+                if self.db:
+                    self.db.log_operation("STEGO_HIDE", "LSB+AES", "FAILED", error="Missing fields")
                 messagebox.showwarning("Ошибка", "Заполните все поля!")
                 return
             
-            # 🔹 Имя файла с датой и временем
             now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             out_path = os.path.join(self.CACHE_DIR, f"stego_secret_{now}.png")
             
             StegoService.hide_encrypted_text(text, key, cover, out_path)
             self.logger.log(f"STEGO HIDE SUCCESS: {os.path.basename(out_path)}")
+            if self.db:
+                self.db.log_operation("STEGO_HIDE", "LSB+AES", "SUCCESS", 
+                                     input_file=os.path.basename(cover), 
+                                     output_file=os.path.basename(out_path),
+                                     key=key)
             messagebox.showinfo("Успех", f"Секрет спрятан!\nФайл сохранен в:\n{out_path}")
         except Exception as e:
             self.logger.log(f"STEGO HIDE FAILED: {str(e)}")
+            if self.db:
+                self.db.log_operation("STEGO_HIDE", "LSB+AES", "FAILED", key=key, error=str(e))
             messagebox.showerror("Ошибка", str(e))
 
     def _action_extract(self):
@@ -374,6 +416,8 @@ class EncryptionApp:
             key = self.stego_entry_key_decrypt.get().strip()
             if not secret or not key:
                 self.logger.log("ERROR: Missing fields for stego extract")
+                if self.db:
+                    self.db.log_operation("STEGO_EXTRACT", "LSB+AES", "FAILED", error="Missing fields")
                 messagebox.showwarning("Ошибка", "Выберите картинку и введите ключ!")
                 return
             result = StegoService.extract_and_decrypt(secret, key)
@@ -382,12 +426,17 @@ class EncryptionApp:
             self.stego_txt_output.insert("1.0", result['decrypted_text'])
             self.stego_txt_output.config(state="disabled")
             self.logger.log(f"STEGO EXTRACT SUCCESS: {len(result['decrypted_text'])} chars")
+            if self.db:
+                self.db.log_operation("STEGO_EXTRACT", "LSB+AES", "SUCCESS", 
+                                     input_file=os.path.basename(secret),
+                                     key=key)
             messagebox.showinfo("Успех", "Текст извлечён!")
         except Exception as e:
             self.logger.log(f"STEGO EXTRACT FAILED: {str(e)}")
+            if self.db:
+                self.db.log_operation("STEGO_EXTRACT", "LSB+AES", "FAILED", key=key, error=str(e))
             messagebox.showerror("Ошибка", str(e))
 
-    # 🔹 ФУНКЦИЯ: Очистка результата в стеганографии
     def _clear_stego_result(self):
         self.logger.log("BUTTON CLICKED: CLEAR STEGO RESULT")
         self.stego_txt_output.config(state="normal")
@@ -404,6 +453,8 @@ class EncryptionApp:
                     self.txt_input.delete("1.0", tk.END)
                     self.txt_input.insert("1.0", content)
                 self.logger.log(f"FILE LOADED: {os.path.basename(path)} ({len(content)} chars)")
+                if self.db:
+                    self.db.log_operation("FILE_LOAD", "SYSTEM", "SUCCESS", input_file=os.path.basename(path))
             except Exception as e:
                 self.logger.log(f"FILE LOAD FAILED: {str(e)}")
                 messagebox.showerror("Ошибка", str(e))
@@ -419,7 +470,6 @@ class EncryptionApp:
             self.logger.log("SAVE FAILED: No content")
             return
         
-        # 🔹 Имя файла с датой и временем
         now = datetime.now().strftime("%Y-%m-%d_%H-%M")
         path = filedialog.asksaveasfilename(
             defaultextension=".txt", 
@@ -431,6 +481,8 @@ class EncryptionApp:
             try:
                 with open(path, "w", encoding="utf-8") as f: f.write(text)
                 self.logger.log(f"FILE SAVED: {os.path.basename(path)} ({len(text)} chars)")
+                if self.db:
+                    self.db.log_operation("FILE_SAVE", "SYSTEM", "SUCCESS", output_file=os.path.basename(path))
                 messagebox.showinfo("Готово", "Файл сохранён.")
             except Exception as e: 
                 self.logger.log(f"FILE SAVE FAILED: {str(e)}")
@@ -445,13 +497,11 @@ class EncryptionApp:
             self.logger.log("CLIPBOARD COPY SUCCESS")
             messagebox.showinfo("Копирование", "Скопировано!")
 
-        # 🔹 ИСПРАВЛЕННАЯ ФУНКЦИЯ ОЧИСТКИ КЕША
     def _clear_cache(self):
         self.logger.log("BUTTON CLICKED: CLEAR CACHE")
         
         if messagebox.askyesno("Подтверждение", "Удалить временные файлы и результаты работы?\n(История действий будет сохранена)"):
             
-            # Безопасная очистка текстовых полей
             def safe_delete(widget):
                 try:
                     if widget and widget.winfo_exists():
@@ -468,7 +518,6 @@ class EncryptionApp:
                 except:
                     pass
 
-            # Очистка режимов
             if hasattr(self, 'txt_input'):
                 try:
                     if self.txt_input.winfo_exists(): self.txt_input.delete("1.0", tk.END)
@@ -484,7 +533,6 @@ class EncryptionApp:
             if hasattr(self, 'stego_entry_key_decrypt'): safe_clear_entry(self.stego_entry_key_decrypt)
             if hasattr(self, 'stego_txt_output'): safe_delete(self.stego_txt_output)
 
-            # Сброс UI
             if hasattr(self, 'cover_drop_zone'):
                 try:
                     if self.cover_drop_zone.winfo_exists():
@@ -501,17 +549,14 @@ class EncryptionApp:
                 except: pass
                 self.stego_secret_path.set("")
 
-            # Удаление файлов
             count = 0
             try:
                 for item_name in os.listdir(self.CACHE_DIR):
                     item_path = os.path.join(self.CACHE_DIR, item_name)
                     
-                    # ⭐ ГЛАВНОЕ ИЗМЕНЕНИЕ: Пропускаем папку с логами
                     if item_name == "logs" and os.path.isdir(item_path):
                         continue 
 
-                    # Удаляем остальное
                     if os.path.isfile(item_path): 
                         os.unlink(item_path)
                         count += 1
@@ -524,6 +569,8 @@ class EncryptionApp:
                 print(f"Ошибка при удалении файлов: {e}")
             
             self.logger.log(f"CACHE CLEARED: {count} files deleted (Logs preserved)")
+            if self.db:
+                self.db.log_operation("CACHE_CLEAR", "SYSTEM", "SUCCESS", error=f"{count} files deleted")
             messagebox.showinfo("Очистка", f"Удалено файлов: {count}\nИстория действий сохранена.")
 
     def _create_passport(self):
@@ -536,15 +583,16 @@ class EncryptionApp:
         try:
             data = {
                 "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "algorithm": "AES-256 (StdLib)",
+                "algorithm": "AES-256-GCM (StdLib)",
                 "integrity": "HMAC-SHA256",
                 "output_hash": hashlib.sha256(text.encode()).hexdigest()[:12]
             }
-            # 🔹 Имя файла с датой
             now = datetime.now().strftime("%Y-%m-%d_%H-%M")
             path = os.path.join(self.CACHE_DIR, f"passport_{now}.json")
             with open(path, "w", encoding="utf-8") as f: json.dump(data, f, indent=4)
             self.logger.log(f"PASSPORT CREATED: {os.path.basename(path)}")
+            if self.db:
+                self.db.log_operation("PASSPORT_CREATE", "SYSTEM", "SUCCESS", output_file=os.path.basename(path))
             messagebox.showinfo("Готово", f"Паспорт сохранен:\n{path}")
         except Exception as e: 
             self.logger.log(f"PASSPORT FAILED: {str(e)}")
@@ -571,7 +619,23 @@ class EncryptionApp:
     def _on_close(self):
         """Обработчик закрытия приложения"""
         self.logger.log("APPLICATION CLOSED")
+        
+        if self.db:
+            # Показываем статистику
+            try:
+                stats = self.db.get_statistics()
+                if stats:
+                    print(f"\n📊 Статистика сеанса:")
+                    print(f"   Всего операций: {stats['total']}")
+                    print(f"   Успешных: {stats['success']}")
+                    print(f"   Ошибок: {stats['failed']}")
+            except:
+                pass
+            
+            self.db.close()
+        
         self.root.destroy()
+
 
 def run():
     if TKDND_AVAILABLE:
@@ -580,10 +644,6 @@ def run():
         root = tk.Tk()
     
     app = EncryptionApp(root)
-    
-    # Обработка закрытия окна
-    root.protocol("WM_DELETE_WINDOW", app._on_close)
-    
     root.mainloop()
 
 if __name__ == "__main__":
