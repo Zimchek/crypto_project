@@ -1,4 +1,4 @@
-﻿# 🛡️ CryptoProject Pro
+# 🛡️ CryptoProject Pro
 
 > **Современное приложение для шифрования данных и стеганографии на Python**
 
@@ -11,11 +11,11 @@
 ## 📥 Скачать
 
 ### 🪟 Готовое приложение для Windows
-[⬇️ Скачать CryptoProject v1.0 (.exe)]([https://github.com/Zimchek/CryptoProject/releases/tag/v1.0]([https://github.com/Zimchek/CryptoProject/releases/download/v1.2/CryptoProject_v1.2.exe]))
+[⬇️ Скачать CryptoProject v1.2 (.exe)](https://github.com/Zimchek/CryptoProject/releases/download/v1.2/CryptoProject_v1.2.exe)
 
 | Параметр | Значение |
 |----------|----------|
-| **Версия** | 1.0 |
+| **Версия** | 1.2 (Stable) |
 | **Размер** | ~45 MB |
 | **ОС** | Windows 7/8/10/11 |
 | **Установка** | Не требуется (портативное) |
@@ -45,7 +45,7 @@
 ### 📊 Логирование и аудит
 - Автоматическая запись всех действий пользователя
 - Временные метки для каждого события
-- История сессий сохраняется в `cache/logs/`
+- **Автономная БД SQLite** (`audit.db`) для структурированного аудита
 - Логи **не удаляются** при очистке кеша
 
 ---
@@ -53,9 +53,11 @@
 ## 🚀 Быстрый старт
 
 ### Вариант 1: Готовое приложение (рекомендуется)
-1. Скачайте [CryptoProject_v1.exe](https://github.com/Zimchek/CryptoProject/releases/tag/v1.0)
+1. Скачайте [CryptoProject_v1.2.exe](https://github.com/Zimchek/CryptoProject/releases/download/v1.2/CryptoProject_v1.2.exe)
 2. Запустите файл двойным кликом
-3. При первом запуске автоматически создастся папка `cache/`
+3. При первом запуске автоматически создадутся:
+   - Папка `cache/` для временных файлов
+   - Файл `audit.db` для журнала операций
 4. Готово! Установка не требуется.
 
 ### Вариант 2: Запуск из исходного кода
